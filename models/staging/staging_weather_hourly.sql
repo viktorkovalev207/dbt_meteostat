@@ -14,13 +14,13 @@ WITH hourly_raw AS (
         ,(json_data->>'dwpt')::NUMERIC AS dewpoint_c
         ,(json_data->>'rhum')::NUMERIC AS humidity_perc
         ,(json_data->>'prcp')::NUMERIC AS precipitation_mm
-        ,(json_data->>'snow')::INTEGER AS snow_mm
+        ,(json_data->>'snow')::NUMERIC)::INTEGER AS snow_mm
         ,((json_data->>'wdir')::NUMERIC)::INTEGER AS wind_direction
         ,(json_data->>'wspd')::NUMERIC AS wind_speed_kmh
         ,(json_data->>'wpgt')::NUMERIC AS wind_peakgust_kmh
         ,(json_data->>'pres')::NUMERIC AS pressure_hpa 
-        ,(json_data->>'tsun')::INTEGER AS sun_minutes
-        ,(json_data->>'coco')::INTEGER AS condition_code
+        ,(json_data->>'tsun')::NUMERIC)::INTEGER AS sun_minutes
+        ,(json_data->>'coco')::NUMERIC)::INTEGER AS condition_code
     FROM hourly_raw
     )
     SELECT * 
