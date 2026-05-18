@@ -18,16 +18,9 @@ clean-targets:
 
 models:
   dbt_meteostat:
-
-
-  models:
-  my_new_project:
-    # Applies to all files under models/example/
     staging:
-        materialized: table
-      # Applies to all files under models/prep/
+      materialized: table
     prep:
-        materialized: table
-    # Applies to all files under models/mart/
+      materialized: table
     mart:
-        materialized: table
+      materialized: table
