@@ -65,4 +65,4 @@ final AS (
     LEFT JOIN arrivals r ON a.faa = r.airport_code
 )
 
-SELECT * FROM final;
+SELECT * FROM final
