@@ -1,0 +1,121 @@
+WITH departures AS (
+    -- Tägliche Aggregation der Abflüge
+    SELECT 
+        origin AS airport_code,
+        flight_date, -- ACHTUNG: Überprüfe, wie deine Datums-Spalte in staging_flights_one_month heißt! (z.B. flight_date, date, fl_date)
+        COUNT(DISTINCT dest) AS unique_departure_connections,
+        COUNT(*) AS planned_departures,
+        SUM(cancelled) AS cancelled_departures, 
+        SUM(diverted) AS diverted_departures,
+        SUM(CASE WHEN cancelled = 0 AND diverted = 0 THEN 1 ELSE 0 END) AS actual_departures,
+        COUNT(DISTINCT tail_number) AS unique_airplanes_dep,
+        COUNT(DISTINCT airline) AS unique_airlines_dep
+    FROM {{ ref('staging_flights_one_month') }}
+    GROUP BY origin, flight_date
+),
+
+arrivals AS (
+    -- Tägliche Aggregation der Ankünfte
+    SELECT 
+        dest AS airport_code,
+        flight_date, -- ACHTUNG: Auch hier den Namen der Datums-Spalte prüfen!
+        COUNT(DISTINCT origin) AS unique_arrival_connections,
+        COUNT(*) AS planned_arrivals,
+        SUM(cancelled) AS cancelled_arrivals,
+        SUM(diverted) AS diverted_arrivals,
+        SUM(CASE WHEN cancelled = 0 AND diverted = 0 THEN 1 ELSE 0 END) AS actual_arrivals,
+        COUNT(DISTINCT tail_number) AS unique_airplanes_arr,
+        COUNT(DISTINCT airline) AS unique_airlines_arr
+    FROM {{ ref('staging_flights_one_month') }}
+    GROUP BY dest, flight_date
+),
+
+daily_flights_combined AS (
+    -- Zusammenführen von Abflügen und Ankünften pro Tag
+    -- FULL OUTER JOIN rettet uns, falls ein Flughafen an einem Tag nur Ankünfte, aber keine Abflüge hat (oder umgekehrt)
+    SELECT 
+        COALESCE(d.airport_code, a.airport_code) AS airport_code,
+        COALESCE(d.flight_date, a.flight_date) AS flight_date,
+        
+        COALESCE(d.unique_departure_connections, 0) AS unique_departure_connections,
+        COALESCE(a.unique_arrival_connections, 0) AS unique_arrival_connections,
+        
+        COALESCE(d.planned_departures, 0) + COALESCE(a.planned_arrivals, 0) AS total_planned_flights,
+        COALESCE(d.cancelled_departures, 0) + COALESCE(a.cancelled_arrivals, 0) AS total_cancelled_flights,
+        COALESCE(d.diverted_departures, 0) + COALESCE(a.diverted_arrivals, 0) AS total_diverted_flights,
+        COALESCE(d.actual_departures, 0) + COALESCE(a.actual_arrivals, 0) AS total_actual_flights,
+        
+        (COALESCE(d.unique_airplanes_dep, 0) + COALESCE(a.unique_airplanes_arr, 0)) / 2 AS avg_unique_airplanes,
+        (COALESCE(d.unique_airlines_dep, 0) + COALESCE(a.unique_airlines_arr, 0)) / 2 AS avg_unique_airlines
+
+    FROM departures d
+    FULL OUTER JOIN arrivals a 
+        ON d.airport_code = a.airport_code 
+        AND d.flight_date = a.flight_date
+),
+
+weather AS (
+    -- Die täglichen Wetterdaten
+    SELECT 
+        airport_code, -- ACHTUNG: Prüfe, ob das in staging_weather_daily wirklich airport_code oder faa oder station_id heißt
+        date AS weather_date,
+        min_temp, 
+        max_temp, 
+        precipitation, 
+        snow_fall, 
+        avg_wind_dir, 
+        avg_wind_speed, 
+        wind_peakgust
+    FROM {{ ref('staging_weather_daily') }}
+),
+
+airports AS (
+    -- Metadaten der Flughäfen
+    SELECT 
+        faa, 
+        name AS airport_name,
+        city,
+        country
+    FROM {{ ref('staging_airports') }}
+),
+
+final AS (
+    -- Der entscheidende INNER JOIN filtert rigoros alles heraus, was keine Wetterdaten hat
+    SELECT 
+        f.airport_code,
+        f.flight_date,
+        
+        -- Optional: Metadaten
+        air.airport_name,
+        air.city,
+        air.country,
+        
+        -- Flug KPIs
+        f.unique_departure_connections,
+        f.unique_arrival_connections,
+        f.total_planned_flights,
+        f.total_cancelled_flights,
+        f.total_diverted_flights,
+        f.total_actual_flights,
+        f.avg_unique_airplanes,
+        f.avg_unique_airlines,
+        
+        -- Wetter KPIs
+        w.min_temp,
+        w.max_temp,
+        w.precipitation,
+        w.snow_fall,
+        w.avg_wind_dir,
+        w.avg_wind_speed,
+        w.wind_peakgust
+
+    FROM daily_flights_combined f
+    -- INNER JOIN erzwingt die Regel: "only the airports we collected the weather data for"
+    INNER JOIN weather w 
+        ON f.airport_code = w.airport_code 
+        AND f.flight_date = w.weather_date
+    LEFT JOIN airports air 
+        ON f.airport_code = air.faa
+)
+
+SELECT * FROM final
